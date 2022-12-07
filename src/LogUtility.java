@@ -469,4 +469,7 @@ public class LogUtility {
             exception.printStackTrace();
         }
     }
+
+    public void sendPiece(int sourcePeerID, int peerId, int pieceNumber) {
+    }
 }
