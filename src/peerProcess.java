@@ -269,61 +269,55 @@ public class peerProcess {
         public void run()
         {
             int unchokeInterval = configFileObj.getUnChokingInterval();
-			try {
-				while(peersWithEntireFile.get() < totalPeers) {
+			try 
+            {
+                int preferredNeighbors = configFileObj.getNoOfNeighbors();
+                while (peersWithEntireFile.get() < totalPeers) 
+                {
+                    int interestedPeersSize = interested_peers.size();
+                    if (interestedPeersSize > 0) {
+                        List<Integer> preferredPeers = new ArrayList<>();
+                        List<Integer> chokedPeers = new ArrayList<>();
 
-					int interestedPeersSize = interested_peers.size();
-					if(interestedPeersSize > 0) {
-						int preferredNeighbors = configFileObj.getNoOfNeighbors();
+                        // Select preferred peers
+                        if (interestedPeersSize < preferredNeighbors) {
+                            preferredPeers.addAll(interested_peers);
+                        } else {
+                            List<Map.Entry<Integer, Integer>> sortedPeersMapList = getPeersAccordingToDownloadRate();
+                            Random rand = new Random();
+                            List<Integer> tempPeersList = new ArrayList<>(interested_peers);
+                            for (int i = 0; i < preferredNeighbors; i++) {
+                                int randomIdx = rand.nextInt(tempPeersList.size());
+                                int peerId = tempPeersList.get(randomIdx);
+                                preferredPeers.add(peerId);
+                                tempPeersList.remove(randomIdx);
+                            }
 
-						if(interestedPeersSize < preferredNeighbors)     
-                       {
-							for (Integer peerId : interested_peers) {
-							NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
-							if(!npiObj.unchoked) {//Don't send unchoked if it is already unchoked
-								npiObj.sendUnChokeMsg(false);
-							}							
-						}
-					}
-						else {
-							//Get interested peers according to download rate and add them or select randomly if the peer has full file
-							List<Map.Entry<Integer, Integer> > sortedPeersMapList = getPeersAccordingToDownloadRate();
-							List<Integer> sortedPeersDR = new ArrayList<>();
-							for(Map.Entry<Integer, Integer> e:sortedPeersMapList) {
-								sortedPeersDR.add(e.getKey());
-							}
-							Random rand = new Random();
-							List<Integer> tempPeersList = new ArrayList<>(interested_peers);
-							int[] preferredPeers = new int[preferredNeighbors];
-							//select preferred Neighbors and unchoke them
-							for(int i=0;i<preferredNeighbors;i++) {
-								int randomIdx = rand.nextInt(tempPeersList.size());
-								int peerId = tempPeersList.get(randomIdx);
-								preferredPeers[i] = peerId;
-								NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
-								//Don't send unchoked if it is already unchoked
-								if(!npiObj.unchoked) {
-									npiObj.sendUnChokeMsg(false);
-								}							
-								tempPeersList.remove(randomIdx);
-							}
+                            // Select choked peers
+                            chokedPeers.addAll(tempPeersList);
+                        }
 
-							logFileObj.log_change_of_preferred_neighbors(sourcePeerId, preferredPeers);
+                        // Send unchoke or choke messages to peers
+                        for (Integer peerId : preferredPeers) {
+                            NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
+                            if (!npiObj.unchoked) {
+                                npiObj.sendUnChokeMsg(false);
+                            }
+                        }
+                        for (Integer peerId : chokedPeers) {
+                            NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
+                            npiObj.sendChokeMsg();
+                        }
 
-							//choke the peers who have not been selected
-							Iterator<Integer> itr = tempPeersList.iterator();
-							while(itr.hasNext()) {
-								int peerId = itr.next();
-								NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
-								npiObj.sendChokeMsg();
-							}
-						}
-					}
-					TimeUnit.SECONDS.sleep(unchokeInterval);
-				}
-			}catch(InterruptedException ie) {
+                        // Log change of preferred neighbors
+                        logFileObj.log_change_of_preferred_neighbors(sourcePeerId, preferredPeers.toArray(new Integer[0]));
+                    }
+                    TimeUnit.SECONDS.sleep(unchokeInterval);
+                }
+    } 
+			}catch(InterruptedException Ie) {
 				//System.exit(0);
-				//ie.printStackTrace();
+				//Ie.printStackTrace();
 			}catch(Exception e) {
 				//System.exit(0);
 				//e.printStackTrace();
@@ -338,28 +332,39 @@ public class peerProcess {
         public void run()
         {
             int optimisticUnchokeInterval = configFileObj.getOptimisticUnchokingInterval();
-            try {
-                while(peersWithEntireFile.get() < totalPeers) {
+            try 
+            {
+                while (peersWithEntireFile.get() < totalPeers) 
+                {
                     int interestedPeersSize = interested_peers.size();
-                    if(interestedPeersSize > 0) {
+                    if (interestedPeersSize > 0) {
                         Random rand = new Random();
                         int randomIdx = rand.nextInt(interestedPeersSize);
                         int peerId = interested_peers.get(randomIdx);
                         optimisticallyUnchokedPeer.setPeerId(peerId);
                         NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
+
+                        // Send optimistically unchoke message to selected peer
                         npiObj.sendUnChokeMsg(true);
                         logFileObj.log_optimistically_unchoked_peer(sourcePeerId, peerId);
-                        TimeUnit.SECONDS.sleep(optimisticUnchokeInterval);
-                        optimisticallyUnchokedPeer.setPeerId(-1);
-                    }
 
-                    if(!npiObj.unchoked()) {
-                        npiObj.sendChokeMsg();
+                        // Wait for optimistic unchoke interval to elapse
+                        TimeUnit.SECONDS.sleep(optimisticUnchokeInterval);
+
+                        // Reset optimistically unchoked peer
+                        optimisticallyUnchokedPeer.setPeerId(-1);
+
+                        // Send choke message to selected peer if it is not unchoked
+                        if (!npiObj.unchoked()) {
+                            npiObj.sendChokeMsg();
+                        }
                     }
                 }
-            }catch(InterruptedException ie) {
+            } 
+
+            catch(InterruptedException Ie) {
                 //System.exit(0);
-                //ie.printStackTrace();
+                //Ie.printStackTrace();
             }catch(Exception e) {
                 //System.exit(0);
                 //e.printStackTrace();
@@ -380,13 +385,35 @@ public class peerProcess {
                 NeighbourPeerNode node = entry.getValue();
                 try {
                     Socket clientSocket = new Socket(node.getHostName(), node.getPortNumber());
-                    DataInputStream dataInputStream = new DataInputStream(sock)
-                    NeighborPeerInteraction npiObj = new NeighborPeerInteraction(clientSocket);
-                    neighborPeerConnections.put(npiObj.peerId, npiObj);
-                    Thread t = new Thread(npiObj);
-                    t.start();
-                } catch (IOException e) {
+                    DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
+                    DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+
+                    byte[] handShakeHeader = utilObj.getHandshakePacket(sourcePeerId);
+					outputStream.write(handShakeHeader);
+
+					byte[] receivedHandshake = new byte[handShakeHeader.length];
+					inputStream.readFully(receivedHandshake);
+					int receivedPeerId = Integer.parseInt(new String(Arrays.copyOfRange(receivedHandshake,28,32)));
+
+					if(receivedPeerId == peerId) {		
+						//System.out.println(receivedPeerId);
+						NeighborPeerInteraction npi = new NeighborPeerInteraction(socket,peerObj);
+						npi.startInteraction();
+						neighborPeerConnections.put(peerId, npi);
+						logFileObj.log_tcp_connection_to(sourcePeerId, peerId);
+					}		
+					index++;
+					outputStream.flush();
+
+                } catch (IOException Ie) {
                     // TODO Auto-generated catch block
+                    Ie.printStackTrace();
+                }
+                catch (UnknowHostException IIe) {
+                    // TODO Auto-generated catch block
+                     IIe.printStackTrace();
+                }
+                catch(Exception e) {
                     e.printStackTrace();
                 }
 
@@ -395,25 +422,62 @@ public class peerProcess {
 
     }
 
-    class Server implements Runnable {
-        @Override
-        public void run() {
-            try {
-                for (Map.Entry<Integer, PeerNode> entry : neighbours.entrySet()) {
-                    PeerNode node = entry.getValue();
-                    Socket clientSocket = new Socket(node.getHostName(), node.getPort());
-                    NeighborPeerInteraction npiObj = new NeighborPeerInteraction(clientSocket);
-                    neighborPeerConnections.put(npiObj.peerId, npiObj);
-                    Thread t = new Thread(npiObj);
-                    t.start();
-                }
-            } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
-        }
-    }
+class Server implements Runnable{
 
+		@Override
+		public void run() {
+			int index = currentPeerIndex;
+			try {
+                    // Create the ServerSocket object
+                    ServerSocket listener = new ServerSocket(sourcePortNumber);
+
+                    while (currentPeerIndex < totalPeers - 1) 
+                    {
+                        // Accept an incoming connection
+                        Socket socket = listener.accept();
+                        DataInputStream inputStream = new DataInputStream(socket.getInputStream());
+                        DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+
+                        byte[] handshakePacket = new byte[32];
+                        inputStream.readFully(handshakePacket);
+
+                        // Parse the peer ID from the handshake packet
+                        int peerId = Integer.parseInt(new String(Arrays.copyOfRange(handshakePacket, 28, 32)));
+                        //send Handshake
+					    
+                        byte[] sendHandshake = utilObj.getHandshakePacket(sourcePeerId);
+					    outputStream.write(sendHandshake);
+
+                        // Use the peer ID to quickly look up the corresponding NeighborPeerNode object
+                        NeighbourPeerNode peerObj = neighborPeers.get(peerId);
+
+                        // Create a NeighborPeerInteraction object for the connecting peer
+                        NeighborPeerInteraction npi = new NeighborPeerInteraction(socket, peerObj);
+                        npi.startInteraction();
+
+                        // Add the NeighborPeerInteraction object to the map
+                        neighborPeerConnections.put(peerId, npi);
+
+                        // Log the connection
+                        logFileObj.log_tcp_connection_from(sourcePeerId, peerId);
+                        index++;
+                    }
+
+				}
+                
+			catch(UnknownHostException Ie) {
+				Ie.printStackTrace();
+			}
+			catch(IOException IIe) {
+				IIe.printStackTrace();
+			}
+			catch(Exception ie) {
+				e.printStackTrace();
+			}
+
+		}
+	}
+    
     /**
      * @param peerLines
      */
