@@ -254,6 +254,166 @@ public class peerProcess {
         }
     }
 
+    class ChokeUnchoke implements Runnable
+    {
+
+        public List<Integer> getPeersAccordingToDownloadRate() 
+        {
+		// Create a list of peer IDs sorted by their download rates
+		List<Integer> sortedPeers = new ArrayList<>(downloadRates.keySet());
+		Collections.sort(sortedPeers, (peer1, peer2) -> downloadRates.get(peer1) - downloadRates.get(peer2));
+		return sortedPeers;
+        }
+
+
+        public void run()
+        {
+            int unchokeInterval = configFileObj.getUnChokingInterval();
+			try {
+				while(peersWithEntireFile.get() < totalPeers) {
+
+					int interestedPeersSize = interested_peers.size();
+					if(interestedPeersSize > 0) {
+						int preferredNeighbors = configFileObj.getNoOfNeighbors();
+
+						if(interestedPeersSize < preferredNeighbors)     
+                       {
+							for (Integer peerId : interested_peers) {
+							NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
+							if(!npiObj.unchoked) {//Don't send unchoked if it is already unchoked
+								npiObj.sendUnChokeMsg(false);
+							}							
+						}
+					}
+						else {
+							//Get interested peers according to download rate and add them or select randomly if the peer has full file
+							List<Map.Entry<Integer, Integer> > sortedPeersMapList = getPeersAccordingToDownloadRate();
+							List<Integer> sortedPeersDR = new ArrayList<>();
+							for(Map.Entry<Integer, Integer> e:sortedPeersMapList) {
+								sortedPeersDR.add(e.getKey());
+							}
+							Random rand = new Random();
+							List<Integer> tempPeersList = new ArrayList<>(interested_peers);
+							int[] preferredPeers = new int[preferredNeighbors];
+							//select preferred Neighbors and unchoke them
+							for(int i=0;i<preferredNeighbors;i++) {
+								int randomIdx = rand.nextInt(tempPeersList.size());
+								int peerId = tempPeersList.get(randomIdx);
+								preferredPeers[i] = peerId;
+								NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
+								//Don't send unchoked if it is already unchoked
+								if(!npiObj.unchoked) {
+									npiObj.sendUnChokeMsg(false);
+								}							
+								tempPeersList.remove(randomIdx);
+							}
+
+							logFileObj.log_change_of_preferred_neighbors(sourcePeerId, preferredPeers);
+
+							//choke the peers who have not been selected
+							Iterator<Integer> itr = tempPeersList.iterator();
+							while(itr.hasNext()) {
+								int peerId = itr.next();
+								NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
+								npiObj.sendChokeMsg();
+							}
+						}
+					}
+					TimeUnit.SECONDS.sleep(unchokeInterval);
+				}
+			}catch(InterruptedException ie) {
+				//System.exit(0);
+				//ie.printStackTrace();
+			}catch(Exception e) {
+				//System.exit(0);
+				//e.printStackTrace();
+			}
+
+
+        }
+    }
+
+    class OptimisticUnchoke implements Runnable
+    {
+        public void run()
+        {
+            int optimisticUnchokeInterval = configFileObj.getOptimisticUnchokingInterval();
+            try {
+                while(peersWithEntireFile.get() < totalPeers) {
+                    int interestedPeersSize = interested_peers.size();
+                    if(interestedPeersSize > 0) {
+                        Random rand = new Random();
+                        int randomIdx = rand.nextInt(interestedPeersSize);
+                        int peerId = interested_peers.get(randomIdx);
+                        optimisticallyUnchokedPeer.setPeerId(peerId);
+                        NeighborPeerInteraction npiObj = neighborPeerConnections.get(peerId);
+                        npiObj.sendUnChokeMsg(true);
+                        logFileObj.log_optimistically_unchoked_peer(sourcePeerId, peerId);
+                        TimeUnit.SECONDS.sleep(optimisticUnchokeInterval);
+                        optimisticallyUnchokedPeer.setPeerId(-1);
+                    }
+
+                    if(!npiObj.unchoked()) {
+                        npiObj.sendChokeMsg();
+                    }
+                }
+            }catch(InterruptedException ie) {
+                //System.exit(0);
+                //ie.printStackTrace();
+            }catch(Exception e) {
+                //System.exit(0);
+                //e.printStackTrace();
+            }
+
+    }
+
+    class Client implements Runnable{
+        @Override
+        public void run() 
+        {
+            int i=0;
+            Iterator<Entry<Integer, NeighbourPeerNode>> itr = neighborPeer.entrySet().iterator();
+
+            while(index<currentPeerIndex){
+                Entry<Integer, NeighbourPeerNode> entry = itr.next();
+                int peerId = entry.getKey();
+                NeighbourPeerNode node = entry.getValue();
+                try {
+                    Socket clientSocket = new Socket(node.getHostName(), node.getPortNumber());
+                    DataInputStream dataInputStream = new DataInputStream(sock)
+                    NeighborPeerInteraction npiObj = new NeighborPeerInteraction(clientSocket);
+                    neighborPeerConnections.put(npiObj.peerId, npiObj);
+                    Thread t = new Thread(npiObj);
+                    t.start();
+                } catch (IOException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+
+            }
+        }
+
+    }
+
+    class Server implements Runnable {
+        @Override
+        public void run() {
+            try {
+                for (Map.Entry<Integer, PeerNode> entry : neighbours.entrySet()) {
+                    PeerNode node = entry.getValue();
+                    Socket clientSocket = new Socket(node.getHostName(), node.getPort());
+                    NeighborPeerInteraction npiObj = new NeighborPeerInteraction(clientSocket);
+                    neighborPeerConnections.put(npiObj.peerId, npiObj);
+                    Thread t = new Thread(npiObj);
+                    t.start();
+                }
+            } catch (IOException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        }
+    }
+
     /**
      * @param peerLines
      */
